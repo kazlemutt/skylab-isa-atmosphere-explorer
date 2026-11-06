@@ -1,7 +1,7 @@
 # Private AI project documentation
-/project-notes/
+/project_notes/
 
-# Environment variables
+# Environment variables and secrets
 .env
 .env.*
 !.env.example
@@ -9,7 +9,7 @@
 # Dependencies
 node_modules/
 
-# Build files
+# Build artifacts
 dist/
 build/
 coverage/
