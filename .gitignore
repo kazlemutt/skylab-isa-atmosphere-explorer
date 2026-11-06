@@ -1,22 +1,16 @@
-# Private AI project documentation
 /project_notes/
 
-# Environment variables and secrets
 .env
 .env.*
 !.env.example
 
-# Dependencies
 node_modules/
 
-# Build artifacts
 dist/
 build/
 coverage/
-
-# Operating system files
+s
 .DS_Store
 Thumbs.db
 
-# Logs
 *.log
