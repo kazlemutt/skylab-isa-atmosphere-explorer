@@ -1,0 +1,22 @@
+# Private AI project documentation
+/project-notes/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build files
+dist/
+build/
+coverage/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
