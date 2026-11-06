@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ISA Atmosphere Explorer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-content">
+                <span class="eyebrow">ATMOSPHERE LAB</span>
+                <h1 class="app-title">ISA Atmosphere Explorer</h1>
+                <p class="app-subtitle">International Standard Atmosphere troposphere model (0–11,000 m)</p>
+            </div>
+            <div class="unit-toggle-group">
+                <label class="toggle-label" for="unit-toggle">Units</label>
+                <div class="toggle-switch" role="switch" aria-checked="false" aria-label="Toggle metric/imperial units" tabindex="0" id="unit-toggle">
+                    <span class="toggle-thumb"></span>
+                </div>
+                <span class="unit-indicator" id="unit-indicator">Metric</span>
+            </div>
+        </header>
+
+        <main class="app-main">
+            <section class="altitude-section" aria-labelledby="altitude-label">
+                <div class="altitude-display">
+                    <label id="altitude-label" class="altitude-label">Altitude</label>
+                    <div class="altitude-value-group">
+                        <output class="altitude-value" id="altitude-value">0</output>
+                        <span class="altitude-unit" id="altitude-unit">m</span>
+                    </div>
+                </div>
+                <div class="slider-container">
+                    <input type="range"
+                           class="altitude-slider"
+                           id="altitude-slider"
+                           min="0"
+                           max="11000"
+                           step="50"
+                           value="0"
+                           aria-label="Altitude in metres"
+                           aria-valuemin="0"
+                           aria-valuemax="11000"
+                           aria-valuenow="0">
+                    <div class="slider-marks" aria-hidden="true">
+                        <span>0 m</span>
+                        <span>2,750 m</span>
+                        <span>5,500 m</span>
+                        <span>8,250 m</span>
+                        <span>11,000 m</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="results-section" aria-labelledby="results-label">
+                <h2 id="results-label" class="section-title">Atmospheric Properties</h2>
+                <div class="results-grid" id="results-grid">
+                    <article class="result-card" data-quantity="temperature">
+                        <header class="card-header">
+                            <span class="card-label">Temperature</span>
+                            <span class="card-symbol" aria-hidden="true">T</span>
+                        </header>
+                        <div class="card-value-group">
+                            <output class="card-value" id="temp-value">15.0</output>
+                            <span class="card-unit" id="temp-unit">°C</span>
+                        </div>
+                        <p class="card-formula" aria-hidden="true">T = T₀ − L·h</p>
+                    </article>
+                    <article class="result-card" data-quantity="pressure">
+                        <header class="card-header">
+                            <span class="card-label">Static Pressure</span>
+                            <span class="card-symbol" aria-hidden="true">p</span>
+                        </header>
+                        <div class="card-value-group">
+                            <output class="card-value" id="pressure-value">1013.25</output>
+                            <span class="card-unit" id="pressure-unit">hPa</span>
+                        </div>
+                        <p class="card-formula" aria-hidden="true">p = p₀(T/T₀)^(g₀/RL)</p>
+                    </article>
+                    <article class="result-card" data-quantity="density">
+                        <header class="card-header">
+                            <span class="card-label">Air Density</span>
+                            <span class="card-symbol" aria-hidden="true">ρ</span>
+                        </header>
+                        <div class="card-value-group">
+                            <output class="card-value" id="density-value">1.225</output>
+                            <span class="card-unit" id="density-unit">kg/m³</span>
+                        </div>
+                        <p class="card-formula" aria-hidden="true">ρ = p/(R·T)</p>
+                    </article>
+                    <article class="result-card" data-quantity="speedOfSound">
+                        <header class="card-header">
+                            <span class="card-label">Speed of Sound</span>
+                            <span class="card-symbol" aria-hidden="true">a</span>
+                        </header>
+                        <div class="card-value-group">
+                            <output class="card-value" id="sound-value">340.3</output>
+                            <span class="card-unit" id="sound-unit">m/s</span>
+                        </div>
+                        <p class="card-formula" aria-hidden="true">a = √(γ·R·T)</p>
+                    </article>
+                </div>
+            </section>
+
+            <section class="chart-section" aria-labelledby="chart-label">
+                <h2 id="chart-label" class="section-title">Density Profile</h2>
+                <div class="chart-container" role="img" aria-label="Air density vs altitude chart showing exponential decrease from sea level to 11,000 m">
+                    <svg class="density-chart" id="density-chart" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid meet"></svg>
+                </div>
+                <div class="chart-legend">
+                    <span class="legend-item">Sea level: 1.225 kg/m³</span>
+                    <span class="legend-item">11,000 m: 0.364 kg/m³</span>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <p class="disclaimer">
+                <strong>Educational model only.</strong> This app uses the dry-air ISA troposphere lapse-rate model (0–11,000 m).
+                It does not represent live weather, humidity, wind, or non-standard conditions.
+                Not for flight planning or safety-critical decisions.
+            </p>
+        </footer>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
