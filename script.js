@@ -1,8 +1,9 @@
 /**
- * SkyLab ISA Atmosphere Explorer — Main Application Logic
+ * SkyLab ISA Explorer — Main Application Logic
  *
  * Implements the International Standard Atmosphere (ISA) troposphere model
  * for altitudes 0–11,000 m with metric/imperial unit display toggle.
+ * Instrument panel interaction model — custom slider, vertical profile chart.
  */
 
 // ============================================================
@@ -82,7 +83,8 @@ const UNIT_LABELS = {
 let state = {
     altitude_m: 0,        // Internal altitude always in metres
     useMetric: true,      // Display units
-    isaData: null         // Cached ISA calculations
+    isaData: null,        // Cached ISA calculations
+    isDragging: false     // Slider drag state
 };
 
 // ============================================================
@@ -124,7 +126,7 @@ function calculateISA(h) {
  * @param {number} steps - Number of points to generate
  * @returns {Array} Array of {h, rho} objects
  */
-function generateDensityProfile(steps = 200) {
+function generateDensityProfile(steps = 300) {
     const profile = [];
     for (let i = 0; i <= steps; i++) {
         const h = (11000 * i) / steps;
@@ -235,8 +237,13 @@ function updateAltitudeDisplay() {
     els.altitudeValue.textContent = formatValue(value, 0);
     els.altitudeUnit.textContent = unit;
 
-    // Update slider aria-valuenow (always in metres for accessibility)
-    els.altitudeSlider.setAttribute('aria-valuenow', state.altitude_m);
+    // Update selector aria-valuenow (always in metres for accessibility)
+    els.altitudeSelector.setAttribute('aria-valuenow', state.altitude_m);
+
+    // Update selector visual position
+    const percent = (state.altitude_m / 11000) * 100;
+    els.selectorFill.style.width = `${percent}%`;
+    els.selectorThumb.style.left = `${percent}%`;
 }
 
 function updateResultsDisplay(data) {
@@ -289,89 +296,104 @@ function toggleUnits() {
 }
 
 // ============================================================
-// SVG Chart Drawing
+// SVG Chart Drawing — Vertical Profile (VSD style)
 // ============================================================
 
 let densityProfile = null;
-const CHART_MARGIN = { top: 30, right: 20, bottom: 40, left: 60 };
-const CHART_WIDTH = 400;
-const CHART_HEIGHT = 300;
-const PLOT_WIDTH = CHART_WIDTH - CHART_MARGIN.left - CHART_MARGIN.right;
-const PLOT_HEIGHT = CHART_HEIGHT - CHART_MARGIN.top - CHART_MARGIN.bottom;
+
+// Chart dimensions (matching viewBox 0 0 200 500)
+const PROFILE_WIDTH = 200;
+const PROFILE_HEIGHT = 500;
+const PROFILE_MARGIN = { top: 30, right: 25, bottom: 40, left: 55 };
+const PLOT_WIDTH = PROFILE_WIDTH - PROFILE_MARGIN.left - PROFILE_MARGIN.right;
+const PLOT_HEIGHT = PROFILE_HEIGHT - PROFILE_MARGIN.top - PROFILE_MARGIN.bottom;
+
+// Y-axis: altitude 0 (bottom) to 11000 (top) — aviation convention
+const H_MIN = 0;
+const H_MAX = 11000;
+// X-axis: density 0 (left) to 1.3 (right)
+const RHO_MIN = 0;
+const RHO_MAX = 1.3;
 
 function initChart() {
-    densityProfile = generateDensityProfile(200);
+    densityProfile = generateDensityProfile(300);
     drawChart();
 }
 
 function drawChart() {
-    const svg = els.densityChart;
+    const svg = els.profileChart;
     svg.innerHTML = '';
 
-    // Set viewBox
-    svg.setAttribute('viewBox', `0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`);
+    // Set viewBox — tall vertical profile
+    svg.setAttribute('viewBox', `0 0 ${PROFILE_WIDTH} ${PROFILE_HEIGHT}`);
 
     // Create main group with margin transform
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.setAttribute('transform', `translate(${CHART_MARGIN.left}, ${CHART_MARGIN.top})`);
+    g.setAttribute('transform', `translate(${PROFILE_MARGIN.left}, ${PROFILE_MARGIN.top})`);
     svg.appendChild(g);
 
-    // Y-axis scale: density from 0 to max (sea level ~1.225)
-    const rhoMax = 1.3;
-    const rhoMin = 0;
-    const hMax = 11000;
-    const hMin = 0;
+    // Draw grid lines and Y-axis labels (altitude)
+    const hTicks = [0, 2750, 5500, 8250, 11000];
+    hTicks.forEach(h => {
+        // In vertical profile, altitude 0 is at bottom (y = PLOT_HEIGHT), 11000 at top (y = 0)
+        const y = PLOT_HEIGHT - ((h - H_MIN) / (H_MAX - H_MIN)) * PLOT_HEIGHT;
 
-    // Draw grid lines and Y-axis labels
-    const yTicks = [0, 0.3, 0.6, 0.9, 1.2];
-    yTicks.forEach(rho => {
-        const y = PLOT_HEIGHT - ((rho - rhoMin) / (rhoMax - rhoMin)) * PLOT_HEIGHT;
-
-        // Grid line
+        // Grid line (horizontal)
         const gridLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        gridLine.setAttribute('class', 'chart-grid-line');
+        gridLine.setAttribute('class', 'profile-grid-line');
         gridLine.setAttribute('x1', 0);
         gridLine.setAttribute('x2', PLOT_WIDTH);
         gridLine.setAttribute('y1', y);
         gridLine.setAttribute('y2', y);
         g.appendChild(gridLine);
 
-        // Y-axis label
+        // Y-axis label (altitude)
         const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         label.setAttribute('class', 'chart-label');
         label.setAttribute('x', -8);
         label.setAttribute('y', y);
         label.setAttribute('text-anchor', 'end');
-        label.textContent = state.useMetric ? rho.toFixed(1) : (rho * CONV.kgm3_to_slugft3(1)).toFixed(3);
+        label.setAttribute('dominant-baseline', 'middle');
+        const displayAlt = getDisplayAltitude(h);
+        label.textContent = displayAlt.value.toLocaleString();
         g.appendChild(label);
+
+        // Tick mark
+        const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        tick.setAttribute('class', 'profile-axis');
+        tick.setAttribute('x1', 0);
+        tick.setAttribute('x2', -6);
+        tick.setAttribute('y1', y);
+        tick.setAttribute('y2', y);
+        g.appendChild(tick);
     });
 
-    // Y-axis line
+    // Y-axis line (altitude)
     const yAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    yAxis.setAttribute('class', 'chart-axis');
+    yAxis.setAttribute('class', 'profile-axis');
     yAxis.setAttribute('x1', 0);
     yAxis.setAttribute('x2', 0);
     yAxis.setAttribute('y1', 0);
     yAxis.setAttribute('y2', PLOT_HEIGHT);
     g.appendChild(yAxis);
 
-    // X-axis line
+    // X-axis line (density) at bottom
     const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    xAxis.setAttribute('class', 'chart-axis');
+    xAxis.setAttribute('class', 'profile-axis');
     xAxis.setAttribute('x1', 0);
     xAxis.setAttribute('x2', PLOT_WIDTH);
     xAxis.setAttribute('y1', PLOT_HEIGHT);
     xAxis.setAttribute('y2', PLOT_HEIGHT);
     g.appendChild(xAxis);
 
-    // X-axis labels
-    const xTicks = [0, 2750, 5500, 8250, 11000];
-    xTicks.forEach(h => {
-        const x = ((h - hMin) / (hMax - hMin)) * PLOT_WIDTH;
+    // X-axis labels (density)
+    const rhoTicks = [0, 0.3, 0.6, 0.9, 1.2];
+    rhoTicks.forEach(rho => {
+        const x = ((rho - RHO_MIN) / (RHO_MAX - RHO_MIN)) * PLOT_WIDTH;
 
         // Tick mark
         const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        tick.setAttribute('class', 'chart-axis');
+        tick.setAttribute('class', 'profile-axis');
         tick.setAttribute('x1', x);
         tick.setAttribute('x2', x);
         tick.setAttribute('y1', PLOT_HEIGHT);
@@ -382,32 +404,34 @@ function drawChart() {
         const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         label.setAttribute('class', 'chart-label');
         label.setAttribute('x', x);
-        label.setAttribute('y', PLOT_HEIGHT + 18);
+        label.setAttribute('y', PLOT_HEIGHT + 16);
         label.setAttribute('text-anchor', 'middle');
-        const displayAlt = getDisplayAltitude(h);
-        label.textContent = displayAlt.value.toLocaleString();
+        const displayRho = state.useMetric
+            ? rho.toFixed(1)
+            : (rho * CONV.kgm3_to_slugft3(1)).toFixed(3);
+        label.textContent = displayRho;
         g.appendChild(label);
     });
 
-    // X-axis title
+    // X-axis title (density)
     const xTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    xTitle.setAttribute('class', 'chart-label');
+    xTitle.setAttribute('class', 'chart-title');
     xTitle.setAttribute('x', PLOT_WIDTH / 2);
-    xTitle.setAttribute('y', PLOT_HEIGHT + 36);
+    xTitle.setAttribute('y', PLOT_HEIGHT + 34);
     xTitle.setAttribute('text-anchor', 'middle');
-    xTitle.style.fontSize = '11px';
-    xTitle.style.fill = 'var(--color-text-secondary)';
-    xTitle.textContent = `Altitude (${UNIT_LABELS[state.useMetric ? 'metric' : 'imperial'].altitude})`;
+    const densityUnit = UNIT_LABELS[state.useMetric ? 'metric' : 'imperial'].density;
+    xTitle.textContent = `Density (${densityUnit})`;
     g.appendChild(xTitle);
 
-    // Y-axis title (rotated)
+    // Y-axis title (altitude) — rotated, on left
     const yTitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     yTitle.setAttribute('class', 'chart-y-label');
-    yTitle.setAttribute('transform', `rotate(-90, ${-CHART_MARGIN.left + 15}, ${CHART_MARGIN.top + PLOT_HEIGHT / 2})`);
-    yTitle.setAttribute('x', -CHART_MARGIN.left + 15);
-    yTitle.setAttribute('y', CHART_MARGIN.top + PLOT_HEIGHT / 2);
+    yTitle.setAttribute('transform', `rotate(-90, ${-PROFILE_MARGIN.left + 18}, ${PROFILE_MARGIN.top + PLOT_HEIGHT / 2})`);
+    yTitle.setAttribute('x', -PROFILE_MARGIN.left + 18);
+    yTitle.setAttribute('y', PROFILE_MARGIN.top + PLOT_HEIGHT / 2);
     yTitle.setAttribute('text-anchor', 'middle');
-    yTitle.textContent = `Density (${UNIT_LABELS[state.useMetric ? 'metric' : 'imperial'].density})`;
+    const altUnit = UNIT_LABELS[state.useMetric ? 'metric' : 'imperial'].altitude;
+    yTitle.textContent = `Altitude (${altUnit})`;
     g.appendChild(yTitle);
 
     // Draw area under curve
@@ -423,23 +447,18 @@ function drawChart() {
 function drawArea(g) {
     if (!densityProfile) return;
 
-    const rhoMax = 1.3;
-    const rhoMin = 0;
-    const hMax = 11000;
-    const hMin = 0;
-
     let pathData = `M 0 ${PLOT_HEIGHT}`;
 
     densityProfile.forEach(point => {
-        const x = ((point.h - hMin) / (hMax - hMin)) * PLOT_WIDTH;
-        const y = PLOT_HEIGHT - ((point.rho - rhoMin) / (rhoMax - rhoMin)) * PLOT_HEIGHT;
+        const x = ((point.rho - RHO_MIN) / (RHO_MAX - RHO_MIN)) * PLOT_WIDTH;
+        const y = PLOT_HEIGHT - ((point.h - H_MIN) / (H_MAX - H_MIN)) * PLOT_HEIGHT;
         pathData += ` L ${x} ${y}`;
     });
 
-    pathData += ` L ${PLOT_WIDTH} ${PLOT_HEIGHT} Z`;
+    pathData += ` L 0 ${PLOT_HEIGHT} Z`;
 
     const area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    area.setAttribute('class', 'chart-area');
+    area.setAttribute('class', 'profile-area');
     area.setAttribute('d', pathData);
     g.appendChild(area);
 }
@@ -447,16 +466,11 @@ function drawArea(g) {
 function drawCurve(g) {
     if (!densityProfile) return;
 
-    const rhoMax = 1.3;
-    const rhoMin = 0;
-    const hMax = 11000;
-    const hMin = 0;
-
     let pathData = '';
 
     densityProfile.forEach((point, i) => {
-        const x = ((point.h - hMin) / (hMax - hMin)) * PLOT_WIDTH;
-        const y = PLOT_HEIGHT - ((point.rho - rhoMin) / (rhoMax - rhoMin)) * PLOT_HEIGHT;
+        const x = ((point.rho - RHO_MIN) / (RHO_MAX - RHO_MIN)) * PLOT_WIDTH;
+        const y = PLOT_HEIGHT - ((point.h - H_MIN) / (H_MAX - H_MIN)) * PLOT_HEIGHT;
 
         if (i === 0) {
             pathData = `M ${x} ${y}`;
@@ -466,67 +480,64 @@ function drawCurve(g) {
     });
 
     const curve = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    curve.setAttribute('class', 'chart-curve');
+    curve.setAttribute('class', 'profile-curve');
     curve.setAttribute('d', pathData);
     g.appendChild(curve);
 }
 
 function drawMarker(g, altitude_m) {
     // Remove existing marker
-    const existingMarker = g.querySelector('.chart-marker-group');
+    const existingMarker = g.querySelector('.profile-marker-group');
     if (existingMarker) {
         existingMarker.remove();
     }
 
-    const rhoMax = 1.3;
-    const rhoMin = 0;
-    const hMax = 11000;
-    const hMin = 0;
-
     const data = calculateISA(altitude_m);
-    const x = ((altitude_m - hMin) / (hMax - hMin)) * PLOT_WIDTH;
-    const y = PLOT_HEIGHT - ((data.rho - rhoMin) / (rhoMax - rhoMin)) * PLOT_HEIGHT;
+    const x = ((data.rho - RHO_MIN) / (RHO_MAX - RHO_MIN)) * PLOT_WIDTH;
+    const y = PLOT_HEIGHT - ((altitude_m - H_MIN) / (H_MAX - H_MIN)) * PLOT_HEIGHT;
 
     const markerGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    markerGroup.setAttribute('class', 'chart-marker-group');
+    markerGroup.setAttribute('class', 'profile-marker-group');
 
-    // Vertical line from curve to x-axis
+    // Horizontal line from curve to y-axis (altitude line)
     const markerLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    markerLine.setAttribute('class', 'chart-marker-line');
-    markerLine.setAttribute('x1', x);
+    markerLine.setAttribute('class', 'profile-marker-line');
+    markerLine.setAttribute('x1', 0);
     markerLine.setAttribute('x2', x);
     markerLine.setAttribute('y1', y);
-    markerLine.setAttribute('y2', PLOT_HEIGHT);
+    markerLine.setAttribute('y2', y);
     markerGroup.appendChild(markerLine);
 
     // Circle marker on curve
     const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    marker.setAttribute('class', 'chart-marker');
+    marker.setAttribute('class', 'profile-marker');
     marker.setAttribute('cx', x);
     marker.setAttribute('cy', y);
-    marker.setAttribute('r', 5);
+    marker.setAttribute('r', 6);
     markerGroup.appendChild(marker);
 
-    // Altitude label above marker
+    // Altitude label to the right of marker
     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     label.setAttribute('class', 'chart-label');
-    label.setAttribute('x', x);
-    label.setAttribute('y', y - 12);
-    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('x', x + 10);
+    label.setAttribute('y', y + 4);
+    label.setAttribute('text-anchor', 'start');
+    label.setAttribute('dominant-baseline', 'middle');
     label.style.fontWeight = '600';
-    label.style.fill = 'var(--color-accent)';
+    label.style.fill = 'var(--readout-amber)';
     const displayAlt = getDisplayAltitude(altitude_m);
     label.textContent = `${displayAlt.value.toLocaleString()} ${displayAlt.unit}`;
     markerGroup.appendChild(label);
 
-    // Density value label
+    // Density value label below altitude
     const densityLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     densityLabel.setAttribute('class', 'chart-label');
-    densityLabel.setAttribute('x', x);
-    densityLabel.setAttribute('y', y - 24);
-    densityLabel.setAttribute('text-anchor', 'middle');
+    densityLabel.setAttribute('x', x + 10);
+    densityLabel.setAttribute('y', y + 16);
+    densityLabel.setAttribute('text-anchor', 'start');
+    densityLabel.setAttribute('dominant-baseline', 'middle');
     densityLabel.style.fontSize = '9px';
-    densityLabel.style.fill = 'var(--color-text-secondary)';
+    densityLabel.style.fill = 'var(--text-secondary)';
     const displayDensity = getDisplayDensity(data.rho);
     densityLabel.textContent = `ρ = ${displayDensity.value} ${displayDensity.unit}`;
     markerGroup.appendChild(densityLabel);
@@ -536,7 +547,7 @@ function drawMarker(g, altitude_m) {
 
 function updateChartMarker() {
     if (!densityProfile) return;
-    const g = els.densityChart.querySelector('g');
+    const g = els.profileChart.querySelector('g');
     if (g) {
         drawMarker(g, state.altitude_m);
     }
@@ -547,32 +558,46 @@ function redrawChart() {
 }
 
 // ============================================================
-// Event Handlers
+// Event Handlers — Custom Slider
 // ============================================================
 
-function handleSliderInput(event) {
-    const newAltitude = parseInt(event.target.value, 10);
-    state.altitude_m = newAltitude;
+function getAltitudeFromEvent(event) {
+    const rect = els.selectorTrack.getBoundingClientRect();
+    const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+    const relativeX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const percent = relativeX / rect.width;
+    return Math.round(percent * 11000 / 50) * 50; // Snap to 50m steps
+}
+
+function handleSelectorPointerDown(event) {
+    if (event.button !== 0 && !event.touches) return; // Only left click / touch
+    state.isDragging = true;
+    els.altitudeSelector.classList.add('dragging');
+    els.selectorThumb.style.cursor = 'grabbing';
+    const newAltitude = getAltitudeFromEvent(event);
+    setAltitude(newAltitude);
+    event.preventDefault();
+}
+
+function handleSelectorPointerMove(event) {
+    if (!state.isDragging) return;
+    const newAltitude = getAltitudeFromEvent(event);
+    setAltitude(newAltitude);
+}
+
+function handleSelectorPointerUp() {
+    if (!state.isDragging) return;
+    state.isDragging = false;
+    els.altitudeSelector.classList.remove('dragging');
+    els.selectorThumb.style.cursor = 'grab';
+}
+
+function setAltitude(altitude_m) {
+    state.altitude_m = Math.max(0, Math.min(11000, altitude_m));
     updateAllDisplays();
 }
 
-function handleSliderChange(event) {
-    // Same as input for now, but could debounce if needed
-    handleSliderInput(event);
-}
-
-function handleToggleClick() {
-    toggleUnits();
-}
-
-function handleToggleKeydown(event) {
-    if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        toggleUnits();
-    }
-}
-
-function handleKeyboardSlider(event) {
+function handleKeyboardSelector(event) {
     let newValue = state.altitude_m;
     const step = 50;
     const pageStep = 500;
@@ -608,9 +633,18 @@ function handleKeyboardSlider(event) {
             return;
     }
 
-    state.altitude_m = newValue;
-    els.altitudeSlider.value = newValue;
-    updateAllDisplays();
+    setAltitude(newValue);
+}
+
+function handleToggleClick() {
+    toggleUnits();
+}
+
+function handleToggleKeydown(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleUnits();
+    }
 }
 
 // ============================================================
@@ -620,12 +654,15 @@ function handleKeyboardSlider(event) {
 function cacheElements() {
     els.altitudeValue = document.getElementById('altitude-value');
     els.altitudeUnit = document.getElementById('altitude-unit');
-    els.altitudeSlider = document.getElementById('altitude-slider');
+    els.altitudeSelector = document.getElementById('altitude-selector');
+    els.selectorTrack = document.getElementById('selector-track');
+    els.selectorFill = document.getElementById('selector-fill');
+    els.selectorThumb = document.getElementById('selector-thumb');
     els.unitToggle = document.getElementById('unit-toggle');
     els.unitIndicator = document.getElementById('unit-indicator');
-    els.densityChart = document.getElementById('density-chart');
+    els.profileChart = document.getElementById('profile-chart');
 
-    // Result cards
+    // Readout tapes
     els.tempValue = document.getElementById('temp-value');
     els.tempUnit = document.getElementById('temp-unit');
     els.pressureValue = document.getElementById('pressure-value');
@@ -637,10 +674,18 @@ function cacheElements() {
 }
 
 function bindEvents() {
-    els.altitudeSlider.addEventListener('input', handleSliderInput);
-    els.altitudeSlider.addEventListener('change', handleSliderChange);
-    els.altitudeSlider.addEventListener('keydown', handleKeyboardSlider);
+    // Custom slider — pointer events for mouse + touch
+    els.selectorTrack.addEventListener('pointerdown', handleSelectorPointerDown);
+    window.addEventListener('pointermove', handleSelectorPointerMove);
+    window.addEventListener('pointerup', handleSelectorPointerUp);
+    window.addEventListener('pointercancel', handleSelectorPointerUp);
 
+    // Keyboard for selector
+    els.altitudeSelector.addEventListener('keydown', handleKeyboardSelector);
+    // Make selector focusable
+    els.altitudeSelector.setAttribute('tabindex', '0');
+
+    // Unit toggle
     els.unitToggle.addEventListener('click', handleToggleClick);
     els.unitToggle.addEventListener('keydown', handleToggleKeydown);
 }
